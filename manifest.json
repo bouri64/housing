@@ -1,0 +1,15 @@
+{
+  "manifest_version": 3,
+  "name": "SeLoger Enhancer",
+  "version": "1.0",
+  "description": "Adds extra info to SeLoger listings",
+  "permissions": ["scripting"],
+  "host_permissions": ["https://www.seloger.com/*"],
+  "content_scripts": [
+    {
+      "matches": ["https://www.seloger.com/*"],
+      "js": ["xlsx.full.min.js", "content.js"],
+      "css": ["style.css"]
+    }
+  ]
+}
