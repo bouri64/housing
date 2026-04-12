@@ -29,6 +29,11 @@ const queue = [];
 const listingFeaturesCache = new Map();
 
 const FEATURES_CONFIG = {
+  propertyType: {
+    label: 'PropertyType',
+    emoji: '🏠',
+    isSpecial: 'propertyType'
+  },
   elevator: {
     positive: ['ascenseur'],
     negative: ['pas d ascenseur', 'sans ascenseur'],
@@ -117,7 +122,7 @@ const FEATURES_CONFIG = {
     emoji: '🏘️',
     isSpecial: 'quartier'
   },
-    exactAddress: {
+  exactAddress: {
     label: 'exactAddress',
     emoji: '📍',
     isSpecial: 'exactAddress'
@@ -258,6 +263,34 @@ function extractEtageField(lines) {
   return etageIndex >= 0 ? lines[etageIndex] : 'N/A';
 }
 
+function getPropertyType(doc) {
+  try {
+    const script = doc.getElementById("__UFRN_LIFECYCLE_SERVERREQUEST__");
+    if (!script) return null;
+
+    // 1. Extract the string inside JSON.parse(" ... ")
+    const match = script.textContent.match(/JSON\.parse\("(.+)"\)/s);
+
+    if (!match) return null;
+
+    let jsonString = match[1];
+
+    // 2. First unescape layer (turn \" into ")
+    jsonString = jsonString
+      .replace(/\\"/g, '"')
+      .replace(/\\n/g, '')
+      .replace(/\\r/g, '');
+
+    // 3. Parse outer JSON
+    const outer = JSON.parse(jsonString);
+
+    return outer?.app_cldp?.data?.classified?.rawData?.propertyTypeLabel;
+  } catch (error) {
+    console.debug('[SeLoger Enhancer] getPropertyType failed', error);
+    return 'N/A';
+  }
+}
+    
 async function getAddressFromCoords(doc) {
   try {
     const script = doc.getElementById("__UFRN_LIFECYCLE_SERVERREQUEST__");
@@ -408,7 +441,7 @@ function updateDownloadButton() {
   button.textContent = `Download Excel (${readyListings}/${totalListings})`;
 }
 
-function downloadExcel() {
+async function downloadExcel() {
   console.log('Download Excel started');
   if (typeof XLSX === 'undefined') {
     console.error('XLSX library not loaded yet');
@@ -456,6 +489,7 @@ function downloadExcel() {
     const quartier = featureLines.quartier || 'N/A';
     const dpe = featureLines.dpe || 'N/A';
     const exactAddress = featureLines.exactAddress || 'N/A';    
+    const propertyType = featureLines.propertyType || 'N/A';    
 
     // Resolve all features using config
     const resolvedFeatures = {};
@@ -468,6 +502,8 @@ function downloadExcel() {
         resolvedFeatures[key] = quartier;
       } else if (config.isSpecial === 'exactAddress') {
         resolvedFeatures[key] = exactAddress;
+      } else if (config.isSpecial === 'propertyType') {
+        resolvedFeatures[key] = propertyType;
       } else if (config.isSpecial === 'dpe') {
         resolvedFeatures[key] = dpe;
       } else {
@@ -493,7 +529,8 @@ function downloadExcel() {
       ChargesCompropriete: resolvedFeatures.chargesCopropriete,
       Quartier: resolvedFeatures.quartier,
       DPE: resolvedFeatures.dpe,
-      ExactAddress: resolvedFeatures.exactAddress
+      ExactAddress: resolvedFeatures.exactAddress,
+      PropertyType: resolvedFeatures.propertyType
     };
 
     console.log('Collected data for listing:', excelData);
@@ -607,6 +644,7 @@ async function addBadges() {
         const quartier = extractQuartier(doc);
         const dpe = extractDPE(doc);
         const exactAddress = await getAddressFromCoords(doc);
+        const propertyType = getPropertyType(doc);
 
         console.log('[DEBUG] extracted quartier:', quartier);
         console.log('[DEBUG] extracted exact address:', exactAddress);
@@ -620,6 +658,8 @@ async function addBadges() {
             resolvedFeatures[key] = coOwnershipFeatures[key];
           } else if (config.isSpecial === 'exactAddress') {
             resolvedFeatures[key] = exactAddress;
+          } else if (config.isSpecial === 'propertyType') {
+            resolvedFeatures[key] = propertyType;
           } else if (config.isSpecial === 'quartier') {
             resolvedFeatures[key] = quartier;
           } else if (config.isSpecial === 'dpe') {
@@ -638,7 +678,7 @@ async function addBadges() {
             return;
           }
 
-          if (config.isSpecial === 'energy' || config.isSpecial === 'co-ownership' || config.isSpecial === 'exactAddress' || config.isSpecial === 'quartier') {
+          if (config.isSpecial === 'energy' || config.isSpecial === 'co-ownership' || config.isSpecial === 'exactAddress' || config.isSpecial === 'propertyType' || config.isSpecial === 'quartier') {
             if (value !== 'N/A') {
               badgeContainer.appendChild(createFeatureBadge(config.emoji, value));
             }
@@ -646,6 +686,9 @@ async function addBadges() {
           }
           if (config.isSpecial === 'exactAddress') {
             badgeContainer.appendChild(createFeatureBadge('📍', exactAddress));
+          }
+          if (config.isSpecial === 'propertyType') {
+            badgeContainer.appendChild(createFeatureBadge('🏠', propertyType));
           }
           if (config.isSpecial === 'dpe') {
             // Display DPE with color
@@ -668,14 +711,14 @@ async function addBadges() {
           featureLines: featureLines,
           energyFeatures: energyFeatures,
           coOwnershipFeatures: coOwnershipFeatures,
-          address: address,
           quartier: quartier,
           dpe: dpe,
-          exactAddress: exactAddress
+          exactAddress: exactAddress,
+          propertyType: propertyType
         });
         updateDownloadButton();
       }).catch(e => {
-        listingFeaturesCache.set(link.href, { featureLines: [], energyFeatures: {}, coOwnershipFeatures: {}, exactAddress: 'N/A', quartier: 'N/A', dpe: 'N/A' });
+        listingFeaturesCache.set(link.href, { featureLines: [], energyFeatures: {}, coOwnershipFeatures: {}, exactAddress: 'N/A',propertyType: 'N/A', quartier: 'N/A', dpe: 'N/A' });
         updateDownloadButton();
         console.debug('[SeLoger Enhancer] fetch failed for listing', link.href, e);
       });
