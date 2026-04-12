@@ -466,22 +466,6 @@ async function downloadExcel() {
     const linkEl = listing.querySelector('a[href*="/annonces/"]');
     const link = linkEl ? linkEl.href : '';
 
-    const badgeContainer = listing.querySelector('.my-badges');
-    let description = '';
-    let feature = '';
-
-    if (badgeContainer) {
-      const descSpan = badgeContainer.querySelector('.my-description');
-      description = descSpan ? descSpan.textContent.trim() : '';
-
-      const badges = badgeContainer.querySelectorAll('.my-badge');
-      // Skip the first 2 badges (elevator and chauffage), take the next one as feature
-      const featureBadges = Array.from(badges).slice(2);
-      if (featureBadges.length > 0) {
-        feature = featureBadges[0].textContent.trim();
-      }
-    }
-
     const featureLines = link ? listingFeaturesCache.get(link) || {} : {};
     const featureLinesArray = featureLines.featureLines || [];
     const energyFeatures = featureLines.energyFeatures || {};
@@ -513,8 +497,7 @@ async function downloadExcel() {
     
     const excelData = {
       Link: link,
-      Description: description,
-      Feature: feature,
+      PropertyType: resolvedFeatures.propertyType,
       Elevator: resolvedFeatures.elevator,
       Parking: resolvedFeatures.parking,
       Etage: resolvedFeatures.etage,
@@ -529,8 +512,7 @@ async function downloadExcel() {
       ChargesCompropriete: resolvedFeatures.chargesCopropriete,
       Quartier: resolvedFeatures.quartier,
       DPE: resolvedFeatures.dpe,
-      ExactAddress: resolvedFeatures.exactAddress,
-      PropertyType: resolvedFeatures.propertyType
+      ExactAddress: resolvedFeatures.exactAddress
     };
 
     console.log('Collected data for listing:', excelData);
