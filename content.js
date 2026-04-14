@@ -19,7 +19,7 @@ const MAX_SCAN_ATTEMPTS = 15;
 const MAX_CONCURRENT = 3;
 // script,sections,facts,hardFacts, check by type (numberOfRooms + price)
 // priceComparison
-
+const FILTER_STORAGE_KEY = 'selogerFilters';
 let enabled = window.localStorage.getItem(STORAGE_KEY) !== 'false';
 let badgesData = DEFAULT_FEATURES;
 let scanTimer = null;
@@ -27,7 +27,12 @@ let scanAttempts = 0;
 let activeRequests = 0;
 const queue = [];
 const listingFeaturesCache = new Map();
-
+let activeFilters = loadFilters();
+let filtersDirty = true;
+function markFiltersChanged() {
+  filtersDirty = true;
+  saveFilters();
+}
 const FEATURES_CONFIG = {
   propertyType: {
     label: 'PropertyType',
@@ -128,7 +133,97 @@ const FEATURES_CONFIG = {
     isSpecial: 'exactAddress'
   },
 };
+function normalizeValue(v) {
+  if (v === undefined || v === null || v === '') return 'N/A';
+  return v;
+}
+function saveFilters() {
+  localStorage.setItem(FILTER_STORAGE_KEY, JSON.stringify(activeFilters));
+}
+function loadFilters() {
+  return JSON.parse(localStorage.getItem(FILTER_STORAGE_KEY) || '{}');
+}
+function buildResolvedFeatures(featureData) {
+  const resolved = {};
 
+  Object.entries(FEATURES_CONFIG).forEach(([key, config]) => {
+    if (config.isSpecial === 'energy') {
+      resolved[key] = normalizeValue(featureData.energyFeatures?.[key]);
+    } else if (config.isSpecial === 'co-ownership') {
+      resolved[key] = normalizeValue(featureData.coOwnershipFeatures?.[key]);
+    } else if (config.isSpecial === 'quartier') {
+      resolved[key] = normalizeValue(featureData.quartier);
+    } else if (config.isSpecial === 'exactAddress') {
+      resolved[key] = normalizeValue(featureData.exactAddress);
+    } else if (config.isSpecial === 'propertyType') {
+      resolved[key] = normalizeValue(featureData.propertyType);
+    } else if (config.isSpecial === 'dpe') {
+      resolved[key] = normalizeValue(featureData.dpe);
+    } else {
+      resolved[key] = resolveFeature(featureData.featureLines || [], config);
+    }
+  });
+
+  return resolved;
+}
+function matchesFilters(resolved) {
+  const filterKeys = Object.keys(activeFilters);
+
+  // no filters → show everything
+  if (filterKeys.length === 0) return true;
+
+  return filterKeys.every((key) => {
+    const selectedValues = activeFilters[key];
+
+    // if filter exists but empty → ignore it
+    if (!selectedValues || selectedValues.length === 0) return true;
+
+    const listingValue = normalizeValue(resolved[key]);
+
+    return selectedValues.includes(listingValue);
+  });
+}
+function applyFilters() {
+  let listings = document.querySelectorAll('[data-testid="serp-core-classified-card-testid"]');
+
+  if (!listings.length) {
+    listings = document.querySelectorAll('.css-dhg3gq');
+  }
+
+  listings.forEach((listing) => {
+    const link = listing.querySelector('a[href*="/annonces/"]');
+    if (!link) return;
+
+    const data = listingFeaturesCache.get(link.href);
+    if (!data) return;
+
+    const resolved = buildResolvedFeatures(data);
+
+    const isMatch = matchesFilters(resolved);
+
+    listing.style.display = isMatch ? '' : 'none';
+  });
+}
+function getDynamicFilterValues() {
+  const values = {};
+
+  listingFeaturesCache.forEach((data) => {
+    const resolved = buildResolvedFeatures(data);
+
+    Object.entries(resolved).forEach(([key, value]) => {
+      const v = normalizeValue(value);
+      if (!values[key]) values[key] = new Set();
+      values[key].add(v);
+    });
+  });
+
+  // convert Set → Array
+  Object.keys(values).forEach((key) => {
+    values[key] = Array.from(values[key]);
+  });
+
+  return values;
+}
 function normalizeFeatureText(text) {
   return (text || '')
     .toLowerCase()
@@ -233,9 +328,7 @@ function extractDPE(doc) {
   return validDPE;
 }
 
-function extractQuartier(doc) {
-  console.log('[DEBUG] extractQuartier: Starting extraction');
-  
+function extractQuartier(doc) {  
   const addressSection = doc.querySelector('[data-testid="cdp-location-address"]');
   if (!addressSection) {
     return 'N/A';
@@ -399,7 +492,139 @@ function createToggleButton() {
   document.body.appendChild(button);
   return button;
 }
+function createSimpleFilterUI() {
+  // BUTTON
+  const button = document.createElement('button');
+  button.textContent = 'Filters ⚙️';
 
+  button.style.position = 'fixed';
+  button.style.top = '10px';
+  button.style.left = '10px';
+  button.style.zIndex = '99999';
+  button.style.padding = '8px';
+  button.style.background = '#333';
+  button.style.color = '#fff';
+
+  // PANEL
+  const panel = document.createElement('div');
+  panel.style.position = 'fixed';
+  panel.style.top = '50px';
+  panel.style.left = '10px';
+  panel.style.zIndex = '99999';
+  panel.style.background = 'white';
+  panel.style.padding = '10px';
+  panel.style.display = 'none';
+  panel.style.border = '1px solid #ccc';
+  panel.style.maxHeight = '70vh';
+  panel.style.overflow = 'auto';
+
+  // TOGGLE
+  button.addEventListener('click', () => {
+    panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+  });
+
+  document.body.appendChild(button);
+  document.body.appendChild(panel);
+
+  return panel;
+}
+function renderDynamicFilters(panel) {
+  panel.innerHTML = '';
+
+  // ➕ ADD FILTER BUTTON
+  const addBtn = document.createElement('button');
+  addBtn.textContent = '+ Add Filter';
+
+  addBtn.addEventListener('click', () => {
+    renderAddFilterSelector(panel);
+  });
+
+  panel.appendChild(addBtn);
+
+  // 🔹 EXISTING FILTERS
+  Object.entries(activeFilters).forEach(([key, selectedValues]) => {
+    const section = document.createElement('div');
+    section.style.borderTop = '1px solid #ccc';
+    section.style.marginTop = '10px';
+
+    // TITLE + REMOVE
+    const title = document.createElement('div');
+    title.textContent = key;
+
+    const removeBtn = document.createElement('button');
+    removeBtn.textContent = '❌';
+    removeBtn.style.marginLeft = '10px';
+
+    removeBtn.addEventListener('click', () => {
+      delete activeFilters[key];
+      renderDynamicFilters(panel);
+    });
+
+    title.appendChild(removeBtn);
+    section.appendChild(title);
+    const dynamicValues = getDynamicFilterValues();
+
+    // VALUES
+    (dynamicValues[key] || []).forEach((val) => {
+      const label = document.createElement('label');
+
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.checked = selectedValues.includes(val);
+
+      checkbox.addEventListener('change', () => {
+        if (checkbox.checked) {
+          activeFilters[key].push(val);
+        } else {
+          activeFilters[key] = activeFilters[key].filter(v => v !== val);
+        }
+
+        console.log('Filters:', activeFilters);
+      });
+
+      label.appendChild(checkbox);
+      label.append(` ${val}`);
+
+      section.appendChild(label);
+      section.appendChild(document.createElement('br'));
+    });
+
+    panel.appendChild(section);
+  });
+}
+function renderAddFilterSelector(panel) {
+  const selector = document.createElement('select');
+
+  const defaultOption = document.createElement('option');
+  defaultOption.textContent = 'Select filter...';
+  defaultOption.disabled = true;
+  defaultOption.selected = true;
+
+  selector.appendChild(defaultOption);
+
+  const dynamicValues = getDynamicFilterValues();
+
+  Object.keys(dynamicValues).forEach((key) => {
+    // avoid duplicates
+    if (activeFilters[key]) return;
+
+    const option = document.createElement('option');
+    option.value = key;
+    option.textContent = key;
+
+    selector.appendChild(option);
+  });
+
+  selector.addEventListener('change', () => {
+    const key = selector.value;
+
+    activeFilters[key] = []; // initialize empty
+
+    renderDynamicFilters(panel);
+  });
+
+  panel.appendChild(selector);
+}
 function createDownloadButton() {
   let button = document.getElementById('seloger-download-btn');
   if (button) return button;
@@ -627,10 +852,6 @@ async function addBadges() {
         const dpe = extractDPE(doc);
         const exactAddress = await getAddressFromCoords(doc);
         const propertyType = getPropertyType(doc);
-
-        console.log('[DEBUG] extracted quartier:', quartier);
-        console.log('[DEBUG] extracted exact address:', exactAddress);
-
         // Parse and create feature badges
         const resolvedFeatures = {};
         Object.entries(FEATURES_CONFIG).forEach(([key, config]) => {
@@ -690,15 +911,17 @@ async function addBadges() {
         });
 
         listingFeaturesCache.set(link.href, {
-          featureLines: featureLines,
-          energyFeatures: energyFeatures,
-          coOwnershipFeatures: coOwnershipFeatures,
-          quartier: quartier,
-          dpe: dpe,
-          exactAddress: exactAddress,
-          propertyType: propertyType
+          featureLines: normalizeValue(featureLines),
+          energyFeatures: normalizeValue(energyFeatures),
+          coOwnershipFeatures: normalizeValue(coOwnershipFeatures),
+          quartier: normalizeValue(quartier),
+          dpe: normalizeValue(dpe),
+          exactAddress: normalizeValue(exactAddress),
+          propertyType: normalizeValue(propertyType)
         });
         updateDownloadButton();
+        applyFilters();
+        filtersDirty = true;
       }).catch(e => {
         listingFeaturesCache.set(link.href, { featureLines: [], energyFeatures: {}, coOwnershipFeatures: {}, exactAddress: 'N/A',propertyType: 'N/A', quartier: 'N/A', dpe: 'N/A' });
         updateDownloadButton();
@@ -744,13 +967,22 @@ async function init() {
   createDownloadButton();
   updateDownloadButton();
   badgesData = await fetchFeaturesFromBackend();
+  const panel = createSimpleFilterUI();
+  renderDynamicFilters(panel);
   updateExtensionState();
-}
+  setInterval(() => {
+    if (filtersDirty) {
+      renderDynamicFilters(panel);
+      filtersDirty = false;
+    }
 
-console.debug('[SeLoger Enhancer] content script loaded');
+    applyFilters();
+  }, 2000);}
 
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', init);
-} else {
-  init();
+  console.debug('[SeLoger Enhancer] content script loaded');
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
 }
