@@ -555,52 +555,13 @@ function createSimpleFilterUI() {
   return panel;
 }
 function renderDynamicFilters(panel) {
-  panel.innerHTML = ''; // 🔥 ALWAYS FIRST
+  panel.innerHTML = '';
 
-  // ⭐ SAVED FILTER PRESETS
-  const presets = loadSavedFilters();
+  const dynamicValues = getDynamicFilterValues();
 
-  const presetSection = document.createElement('div');
-  presetSection.style.borderBottom = '1px solid #ccc';
-  presetSection.style.paddingBottom = '10px';
-
-  const title = document.createElement('b');
-  title.textContent = '⭐ Saved Filters';
-  presetSection.appendChild(title);
-
-  // LIST PRESETS
-  Object.keys(presets).forEach((name) => {
-    const row = document.createElement('div');
-
-    const btn = document.createElement('button');
-    btn.textContent = name;
-
-    btn.addEventListener('click', () => {
-      applyFilterPreset(name);
-      renderDynamicFilters(panel);
-    });
-
-    row.appendChild(btn);
-    presetSection.appendChild(row);
-  });
-
-  // SAVE BUTTON
-  const saveBtn = document.createElement('button');
-  saveBtn.textContent = '+ Save current filters';
-
-  saveBtn.addEventListener('click', () => {
-    const name = prompt('Name this filter set:');
-    if (!name) return;
-
-    saveCurrentFilterPreset(name);
-    renderDynamicFilters(panel);
-  });
-
-  presetSection.appendChild(saveBtn);
-
-  panel.appendChild(presetSection);
-
+  // =========================
   // ➕ ADD FILTER BUTTON
+  // =========================
   const addBtn = document.createElement('button');
   addBtn.textContent = '+ Add Filter';
 
@@ -610,7 +571,9 @@ function renderDynamicFilters(panel) {
 
   panel.appendChild(addBtn);
 
-  // 🔹 EXISTING FILTERS
+  // =========================
+  // 🔹 ACTIVE FILTERS
+  // =========================
   Object.entries(activeFilters).forEach(([key, selectedValues]) => {
     const section = document.createElement('div');
     section.style.borderTop = '1px solid #ccc';
@@ -624,14 +587,12 @@ function renderDynamicFilters(panel) {
 
     removeBtn.addEventListener('click', () => {
       delete activeFilters[key];
-      saveFilters(); // ✅ IMPORTANT FIX
+      saveFilters();
       renderDynamicFilters(panel);
     });
 
     title.appendChild(removeBtn);
     section.appendChild(title);
-
-    const dynamicValues = getDynamicFilterValues();
 
     (dynamicValues[key] || []).forEach((val) => {
       const label = document.createElement('label');
@@ -648,7 +609,7 @@ function renderDynamicFilters(panel) {
             activeFilters[key].filter(v => v !== val);
         }
 
-        saveFilters(); // ✅ IMPORTANT FIX
+        saveFilters();
       });
 
       label.appendChild(checkbox);
@@ -660,6 +621,69 @@ function renderDynamicFilters(panel) {
 
     panel.appendChild(section);
   });
+
+  // =========================
+  // ⭐ SAVED FILTERS (UNDER LIST)
+  // =========================
+  const presets = loadSavedFilters();
+
+  const presetSection = document.createElement('div');
+  presetSection.style.borderTop = '2px solid #999';
+  presetSection.style.marginTop = '15px';
+  presetSection.style.paddingTop = '10px';
+
+  const title = document.createElement('b');
+  title.textContent = '⭐ Saved Filters';
+  presetSection.appendChild(title);
+
+  Object.keys(presets).forEach((name) => {
+    const row = document.createElement('div');
+
+    const btn = document.createElement('button');
+    btn.textContent = name;
+
+    btn.addEventListener('click', () => {
+      applyFilterPreset(name);
+      renderDynamicFilters(panel);
+    });
+
+    row.appendChild(btn);
+    presetSection.appendChild(row);
+  });
+
+  // SAVE CURRENT
+  const saveBtn = document.createElement('button');
+  saveBtn.textContent = '+ Save current filters';
+
+  saveBtn.addEventListener('click', () => {
+    const name = prompt('Name this filter set:');
+    if (!name) return;
+
+    saveCurrentFilterPreset(name);
+    renderDynamicFilters(panel);
+  });
+
+  presetSection.appendChild(saveBtn);
+
+  panel.appendChild(presetSection);
+
+  // =========================
+  // 🔄 RESET FILTERS BUTTON
+  // =========================
+  const resetBtn = document.createElement('button');
+  resetBtn.textContent = '🔄 Reset filters';
+
+  resetBtn.style.marginTop = '10px';
+  resetBtn.style.background = '#f44336';
+  resetBtn.style.color = 'white';
+
+  resetBtn.addEventListener('click', () => {
+    activeFilters = {};        // 💥 clear all
+    saveFilters();             // persist reset
+    renderDynamicFilters(panel);
+  });
+
+  panel.appendChild(resetBtn);
 }
 
 function renderAddFilterSelector(panel) {
