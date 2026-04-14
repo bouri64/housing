@@ -524,7 +524,7 @@ function createSimpleFilterUI() {
   button.textContent = 'Filters ⚙️';
 
   button.style.position = 'fixed';
-  button.style.top = '10px';
+  button.style.top = '90px';
   button.style.left = '10px';
   button.style.zIndex = '99999';
   button.style.padding = '8px';
@@ -534,7 +534,7 @@ function createSimpleFilterUI() {
   // PANEL
   const panel = document.createElement('div');
   panel.style.position = 'fixed';
-  panel.style.top = '50px';
+  panel.style.top = '130px';
   panel.style.left = '10px';
   panel.style.zIndex = '99999';
   panel.style.background = 'white';
@@ -560,27 +560,67 @@ function renderDynamicFilters(panel) {
   const dynamicValues = getDynamicFilterValues();
 
   // =========================
-  // ➕ ADD FILTER BUTTON
+  // ➕ ADD FILTER (accordion)
   // =========================
-  const addBtn = document.createElement('button');
-  addBtn.textContent = '+ Add Filter';
+  const addSection = document.createElement('div'); // NOT details
+  addSection.style.marginBottom = '10px';
 
-  addBtn.addEventListener('click', () => {
-    renderAddFilterSelector(panel);
+  const addTitle = document.createElement('div');
+  addTitle.textContent = '+ Add Filter';
+  addTitle.style.fontWeight = 'bold';
+  addTitle.style.marginBottom = '5px';
+
+  addSection.appendChild(addTitle);
+  addTitle.style.fontSize = '14px';
+  addTitle.style.color = '#333';
+
+  const selector = document.createElement('select');
+
+  const defaultOption = document.createElement('option');
+  defaultOption.textContent = 'Select filter...';
+  defaultOption.disabled = true;
+  defaultOption.selected = true;
+
+  selector.appendChild(defaultOption);
+
+  Object.keys(dynamicValues).forEach((key) => {
+    if (activeFilters[key]) return;
+
+    const option = document.createElement('option');
+    option.value = key;
+    option.textContent = key;
+
+    selector.appendChild(option);
   });
 
-  panel.appendChild(addBtn);
+  selector.addEventListener('change', () => {
+    const key = selector.value;
+    activeFilters[key] = [];
+    saveFilters();
+    renderDynamicFilters(panel);
+  });
+
+  addSection.appendChild(selector);
+  panel.appendChild(addSection);
 
   // =========================
-  // 🔹 ACTIVE FILTERS
+  // 📦 ACTIVE FILTERS
   // =========================
+  const activeSection = document.createElement('details');
+  activeSection.open = true; // optional: open by default
+
+  const activeSummary = document.createElement('summary');
+  activeSummary.textContent = '📦 Active Filters';
+
+  activeSection.appendChild(activeSummary);
+
   Object.entries(activeFilters).forEach(([key, selectedValues]) => {
-    const section = document.createElement('div');
-    section.style.borderTop = '1px solid #ccc';
-    section.style.marginTop = '10px';
+    const block = document.createElement('div');
+    block.style.margin = '6px 0';
 
-    const title = document.createElement('div');
-    title.textContent = key;
+    const header = document.createElement('div');
+    header.style.fontWeight = 'bold';
+    header.textContent = key + ' ';
 
     const removeBtn = document.createElement('button');
     removeBtn.textContent = '❌';
@@ -591,11 +631,14 @@ function renderDynamicFilters(panel) {
       renderDynamicFilters(panel);
     });
 
-    title.appendChild(removeBtn);
-    section.appendChild(title);
+    header.appendChild(removeBtn);
+    block.appendChild(header);
 
-    (dynamicValues[key] || []).forEach((val) => {
+    const values = dynamicValues[key] || [];
+
+    values.forEach((val) => {
       const label = document.createElement('label');
+      label.style.display = 'block';
 
       const checkbox = document.createElement('input');
       checkbox.type = 'checkbox';
@@ -614,31 +657,30 @@ function renderDynamicFilters(panel) {
 
       label.appendChild(checkbox);
       label.append(` ${val}`);
-
-      section.appendChild(label);
-      section.appendChild(document.createElement('br'));
+      block.appendChild(label);
     });
 
-    panel.appendChild(section);
+    activeSection.appendChild(block);
   });
 
+  panel.appendChild(activeSection);
+
   // =========================
-  // ⭐ SAVED FILTERS (UNDER LIST)
+  // ⭐ SAVED FILTERS
   // =========================
+  const savedSection = document.createElement('details');
+
+  const savedSummary = document.createElement('summary');
+  savedSummary.textContent = '⭐ Saved Filters';
+
+  savedSection.appendChild(savedSummary);
+
   const presets = loadSavedFilters();
-
-  const presetSection = document.createElement('div');
-  presetSection.style.borderTop = '2px solid #999';
-  presetSection.style.marginTop = '15px';
-  presetSection.style.paddingTop = '10px';
-
-  const title = document.createElement('b');
-  title.textContent = '⭐ Saved Filters';
-  presetSection.appendChild(title);
 
   Object.keys(presets).forEach((name) => {
     const row = document.createElement('div');
 
+    // LOAD BUTTON
     const btn = document.createElement('button');
     btn.textContent = name;
 
@@ -647,11 +689,29 @@ function renderDynamicFilters(panel) {
       renderDynamicFilters(panel);
     });
 
+    // ❌ DELETE BUTTON (NEW)
+    const delBtn = document.createElement('button');
+    delBtn.textContent = '❌';
+
+    delBtn.style.marginLeft = '8px';
+    delBtn.style.opacity = '0.5';
+    delBtn.onmouseover = () => delBtn.style.opacity = '1';
+    delBtn.onmouseout = () => delBtn.style.opacity = '0.5';
+    delBtn.addEventListener('click', (e) => {
+      e.stopPropagation(); // prevents triggering load click
+
+      if (!confirm(`Delete filter "${name}" ?`)) return;
+
+      deleteFilterPreset(name);
+      renderDynamicFilters(panel);
+    });
+
     row.appendChild(btn);
-    presetSection.appendChild(row);
+    row.appendChild(delBtn);
+
+    savedSection.appendChild(row);
   });
 
-  // SAVE CURRENT
   const saveBtn = document.createElement('button');
   saveBtn.textContent = '+ Save current filters';
 
@@ -663,12 +723,12 @@ function renderDynamicFilters(panel) {
     renderDynamicFilters(panel);
   });
 
-  presetSection.appendChild(saveBtn);
+  savedSection.appendChild(saveBtn);
 
-  panel.appendChild(presetSection);
+  panel.appendChild(savedSection);
 
   // =========================
-  // 🔄 RESET FILTERS BUTTON
+  // 🔄 RESET FILTERS
   // =========================
   const resetBtn = document.createElement('button');
   resetBtn.textContent = '🔄 Reset filters';
@@ -678,14 +738,23 @@ function renderDynamicFilters(panel) {
   resetBtn.style.color = 'white';
 
   resetBtn.addEventListener('click', () => {
-    activeFilters = {};        // 💥 clear all
-    saveFilters();             // persist reset
+    activeFilters = {};
+    saveFilters();
     renderDynamicFilters(panel);
   });
 
   panel.appendChild(resetBtn);
 }
 
+function deleteFilterPreset(name) {
+  const presets = loadSavedFilters();
+
+  if (!presets[name]) return;
+
+  delete presets[name];
+
+  saveSavedFilters(presets);
+}
 function renderAddFilterSelector(panel) {
   const selector = document.createElement('select');
 
