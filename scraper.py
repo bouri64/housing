@@ -2,8 +2,9 @@ import time
 import json
 import re
 import requests
+import codecs
 from playwright.sync_api import sync_playwright
-
+MAX_LISTINGS = 40
 
 # ---------------- DEBUG ----------------
 def debug_log(label, value):
@@ -69,10 +70,9 @@ def extract_details(page):
 
         json_string = match.group(1)
 
-        json_string = json_string.replace('\\"', '"').replace('\\n', '').replace('\\r', '')
+        json_string = codecs.decode(json_string, "unicode_escape")
 
         data = json.loads(json_string)
-
         classified = data.get("app_cldp", {}).get("data", {}).get("classified", {})
 
         property_type = classified.get("rawData", {}).get("propertyTypeLabel", "N/A")
@@ -140,7 +140,7 @@ def scrape_seloger(url: str):
         print(f"🔗 Extracted {len(urls)} URLs")
 
         # ---------------- FAST DETAIL SCRAPING ----------------
-        for i, href in enumerate(urls[:10]):
+        for i, href in enumerate(urls[:MAX_LISTINGS]):
 
             print(f"\n➡ Scraping {i+1}/{len(urls)}")
             print(href)
