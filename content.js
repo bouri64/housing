@@ -178,10 +178,10 @@ async function reqGroq(prompt, model = "openai/gpt-oss-120b") {
   const cacheKey = hashString(prompt + model);
 
   // ✅ CACHE HIT
-  // if (cache[cacheKey]) {
-  //   console.log('%c[CACHE HIT]', 'color: green; font-weight: bold;', { model });
-  //   return cache[cacheKey];
-  // }
+  if (cache[cacheKey]) {
+    console.log('%c[CACHE HIT]', 'color: green; font-weight: bold;', { model });
+    return cache[cacheKey];
+  }
 
   const modelsToTry = [
     model,
@@ -352,10 +352,10 @@ async function parseGroq(matchText, base = "", model = "openai/gpt-oss-120b") {
   const cache = getGroqCache();
 
   // // ✅ CACHE HIT (parsed level)
-  // if (cache[cacheKey]) {
-  //   console.log(`[CACHE HIT - PARSED] model=${model}`);
-  //   return cache[cacheKey];
-  // }
+  if (cache[cacheKey]) {
+    console.log(`[CACHE HIT - PARSED] model=${model}`);
+    return cache[cacheKey];
+  }
 
   try {
     const completion = await reqGroq(prompt, model);
