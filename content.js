@@ -16,7 +16,7 @@ const DEFAULT_FEATURES = [
 ];
 const SCAN_INTERVAL_MS = 1000;
 const MAX_SCAN_ATTEMPTS = 15;
-const MAX_CONCURRENT = 3;
+const MAX_CONCURRENT = 3; // Was 3, made 1 for GROQ
 // script,sections,facts,hardFacts, check by type (numberOfRooms + price)
 // priceComparison
 const FILTER_STORAGE_KEY = 'selogerFilters';
@@ -34,6 +34,9 @@ function markFiltersChanged() {
   filtersDirty = true;
   saveFilters();
 }
+chrome.storage.local.set({
+  GROQ_API_KEY: "placeholder"
+});
 const FEATURES_CONFIG = {
   propertyType: {
     label: 'PropertyType',
@@ -133,8 +136,145 @@ const FEATURES_CONFIG = {
     emoji: '📍',
     isSpecial: 'exactAddress'
   },
+  transport: {
+    label: 'Transport',
+    emoji: '🚆',
+    isSpecial: 'transport'
+  }
 };
+async function reqGroq(prompt, model = "openai/gpt-oss-120b") {
+  const { GROQ_API_KEY } = await chrome.storage.local.get("GROQ_API_KEY");
 
+  const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${GROQ_API_KEY}`
+    },
+    body: JSON.stringify({
+      model: model,
+      messages: [
+        {
+          role: "user",
+          content: prompt
+        }
+      ],
+      temperature: 0
+    })
+  });
+
+  const data = await response.json();
+  return data;
+}
+
+async function quickParseTransport(doc) {
+  const description = extractDescription(doc);
+
+  // Split into sentences
+  const sentences = description
+    .split(/[\n.]+/)
+    .map(s => s.trim())
+    .filter(Boolean);
+
+  const regex1 = /(\d+(?:[.,]\d+)?)\s*(minutes?|mn|min|km|m(?!\s?(?:2|²)))\s*(?:à|a)?\s*(?:\s*(pied|bus|voiture))?\s*(?:de|du|d’)?\s*(?:la|le)?\s*(gare|RER|m[ée]tro|station)\s*([A-Za-zÀ-ÿ0-9\-–\/\s]+)/i;
+
+  const regex2 = /(gare|RER|m[ée]tro|station)\s*([A-Za-zÀ-ÿ0-9\-–\/\s]+?)\s*(?:à|a)?\s*(?:environ)?\s*(\d+(?:[.,]\d+)?)\s*(km|m(?!\s?(?:2|²))|minutes?|mn|min)/i;
+
+  // ✅ NEW regex (your requested case)
+  // const regex3 = /(\d+(?:[.,]\d+)?)\s*(minutes?|mn|min)\s*(?:à\s*pieds?|à\s*pied)?\s*(?:de|du|d’)\s*(gare|RER|m[ée]tro|station)\s+([A-Za-zÀ-ÿ0-9\-–\/\s]+)/i;
+  const regex3 = /(?:A\s*)?(\d+(?:[.,]\d+)?)\s*(minutes?|mn|min)\s*(?:à\s*pieds?|à\s*pied)?\s*(?:de|du|d’)\s*(?:la\s*)?(gare|RER|m[ée]tro|station)\s*([A-Za-zÀ-ÿ0-9\-–\/\s]*)/i;
+  let results = [];
+
+  for (const sentence of sentences) {
+    let match;
+
+    // Case 1
+    match = regex1.exec(sentence);
+
+    if (match) {
+      results.push({
+        sentence,
+        TimeToTransport: parseFloat(match[1].replace(',', '.')),
+        Unit: match[2],
+        HowReachTransport: match[3] || "Unknown",
+        TransportType: match[4] || "Unknown",
+        ClosestTransport: match[5]?.trim() || "Unknown"
+      });
+      continue;
+    }
+
+    // Case 2
+    match = regex2.exec(sentence);
+
+    if (match) {
+      results.push({
+        sentence,
+        TimeToTransport: parseFloat(match[3].replace(',', '.')),
+        Unit: match[4],
+        HowReachTransport: "Unknown",
+        TransportType: match[1],
+        ClosestTransport: match[2]?.trim() || "Unknown"
+      });
+      continue;
+    }
+
+    // Case 3 (NEW)
+    match = regex3.exec(sentence);
+
+    if (match) {
+      results.push({
+        sentence,
+        TimeToTransport: parseFloat(match[1].replace(',', '.')),
+        Unit: match[2],
+        HowReachTransport: "pied",
+        TransportType: match[3],
+        ClosestTransport: match[4]?.trim() || "Unknown"
+      });
+    }
+  }
+
+  if (results.length > 1) {
+    console.log('[Regex] Multiple results:', results.length);
+    results.forEach((res, idx) =>
+      console.log(`[Regex] Result ${idx + 1}:`, normalizeTransport(res))
+    );
+  }
+
+  return results.length ? results[0] : 'N/A';
+}
+async function parseGroq(matchText, base = "", model = "openai/gpt-oss-120b") {
+  if (!base) {
+    base = `
+      Return ONLY valid JSON.
+      No text before or after.
+
+      Format:
+      {"TimeToTransport": number, "ClosestTransport": string, "HowReachTransport": "Foot" | "Bus", "Unit": "min" | "km"}
+
+      If unknown → return {}
+
+      Task: find travel time to closest RER or Transilien.
+
+      Context:
+      `;
+    // base = "## You need to find the time we need to get to the closest RER, if unknown output an empty JSON. Output format: Json {TimeToTransport:int (in minutes), ClosestTransport:string (Gare name, must be Rer or Transilien), HowReachTransport:string (Bus or Foot)} ... ## Context:\n";
+  }
+
+  const prompt = base + matchText + "##";
+  try {
+    const completion = await reqGroq(prompt, model);
+
+    return {
+      original_text: matchText,
+      response: completion.choices?.[0]?.message?.content || "",
+      length: prompt.length
+    };
+
+  } catch (e) {
+    console.error("Request failed:", e);
+    return null;
+  }
+}
 function loadSavedFilters() {
   return JSON.parse(localStorage.getItem(SAVED_FILTERS_KEY) || '{}');
 }
@@ -183,6 +323,8 @@ function buildResolvedFeatures(featureData) {
       resolved[key] = normalizeValue(featureData.exactAddress);
     } else if (config.isSpecial === 'propertyType') {
       resolved[key] = normalizeValue(featureData.propertyType);
+    } else if (config.isSpecial === 'transport') {
+      resolved[key] = normalizeValue(featureData.transport);
     } else if (config.isSpecial === 'dpe') {
       resolved[key] = normalizeValue(featureData.dpe);
     } else {
@@ -409,7 +551,67 @@ function getPropertyType(doc) {
     return 'N/A';
   }
 }
-    
+  
+function extractDescription(doc) {
+  try {
+    const script = doc.getElementById("__UFRN_LIFECYCLE_SERVERREQUEST__");
+    if (!script) return null;
+
+    // 1. Extract the string inside JSON.parse(" ... ")
+    const match = script.textContent.match(/JSON\.parse\("(.+)"\)/s);
+
+    if (!match) return null;
+
+    let jsonString = match[1];
+
+    // 2. First unescape layer (turn \" into ")
+    jsonString = jsonString
+      .replace(/\\"/g, '"')
+      .replace(/\\n/g, '')
+      .replace(/\\r/g, '');
+
+    // 3. Parse outer JSON
+    const outer = JSON.parse(jsonString);
+
+    return outer?.app_cldp?.data?.classified?.sections?.description?.description || 'N/A';
+  } catch (e) {
+    console.debug('[SeLoger Enhancer] extractDescription failed', e);
+    return 'N/A';
+  }
+}
+
+async function getTransportFromDescription(doc, model="openai/gpt-oss-120b") {
+  const description = extractDescription(doc);
+  if (!description) return null;
+  // console.log('Extracted description for transport parsing:', description.substring(0, 200));
+  try {
+    const result = await parseGroq(description, "", model);
+
+    if (result.response === '') 
+    {
+      console.log("Empty response from GROQ:", result);
+      return 'N/A';
+    }
+    // VERY IMPORTANT → clean JSON (LLMs often return messy output)
+    let parsed;
+
+    try {
+      parsed = JSON.parse(result.response);
+    } catch {
+      console.warn("Bad JSON from Groq:", result.response);
+      console.log("Bad JSON from Groq:", result);
+      return 'N/A';
+    }
+
+    return parsed;
+
+  } catch (e) {
+    // console.error("Transport parsing failed:", e);
+    console.warn("Transport parsing failed:", e);
+    return 'N/A';
+  }
+}
+
 async function getAddressFromCoords(doc) {
   try {
     const script = doc.getElementById("__UFRN_LIFECYCLE_SERVERREQUEST__");
@@ -459,19 +661,42 @@ function enqueue(task) {
   });
 }
 
+// function runQueue() {
+//   if (activeRequests >= MAX_CONCURRENT || queue.length === 0) return;
+
+//   const { task, resolve } = queue.shift();
+//   activeRequests++;
+
+  
+//   task().then((res) => {
+//     resolve(res);
+//     activeRequests--;
+//     runQueue();
+//   });
+// }
+
 function runQueue() {
   if (activeRequests >= MAX_CONCURRENT || queue.length === 0) return;
 
   const { task, resolve } = queue.shift();
   activeRequests++;
 
-  task().then((res) => {
-    resolve(res);
-    activeRequests--;
-    runQueue();
-  });
+  task()
+    .then((res) => {
+      resolve(res);
+    })
+    .catch((err) => {
+      console.error('Queue task failed:', err);
+      resolve(null); // avoid blocking queue
+    })
+    .finally(() => {
+      // ⏳ WAIT before freeing slot
+      // setTimeout(() => {
+        activeRequests--;
+        runQueue();
+      // }, 300); // 👉 tweak this (200–500ms)
+    });
 }
-
 async function fetchFeaturesFromBackend() {
   try {
     const response = await fetch(BACKEND_URL, {
@@ -862,6 +1087,7 @@ async function downloadExcel() {
     const dpe = featureLines.dpe || 'N/A';
     const exactAddress = featureLines.exactAddress || 'N/A';    
     const propertyType = featureLines.propertyType || 'N/A';    
+    const transport = featureLines.transport || 'N/A';
 
     // Resolve all features using config
     const resolvedFeatures = {};
@@ -876,6 +1102,8 @@ async function downloadExcel() {
         resolvedFeatures[key] = exactAddress;
       } else if (config.isSpecial === 'propertyType') {
         resolvedFeatures[key] = propertyType;
+      } else if (config.isSpecial === 'transport') {
+        resolvedFeatures[key] = transport;
       } else if (config.isSpecial === 'dpe') {
         resolvedFeatures[key] = dpe;
       } else {
@@ -900,10 +1128,11 @@ async function downloadExcel() {
       ChargesCompropriete: resolvedFeatures.chargesCopropriete,
       Quartier: resolvedFeatures.quartier,
       DPE: resolvedFeatures.dpe,
-      ExactAddress: resolvedFeatures.exactAddress
+      ExactAddress: resolvedFeatures.exactAddress,
+      Transport: resolvedFeatures.transport
     };
 
-    console.log('Collected data for listing:', excelData);
+    // console.log('Collected data for listing:', excelData);
 
     data.push(excelData);
   });
@@ -957,6 +1186,21 @@ function removeOverflowHidden() {
   }
 }
 
+function normalizeTransport(result) {
+  if (!result || result?.TimeToTransport === undefined) return 'N/A';
+  return `${result.TimeToTransport} ${result.Unit} → ${result.ClosestTransport} by ${result.HowReachTransport}`;
+}
+
+async function normalizeTransportWithPrompt(result) {
+  if (!result || result === 'N/A' || result?.sentence === undefined) return 'N/A';
+  const groqResult = await parseGroq(result.sentence);
+  if (groqResult.response === '')  {
+    console.log("Empty response from GROQ:", groqResult);
+    return 'N/A';
+  }
+  return JSON.parse(groqResult?.response);
+}
+
 async function addBadges() {
   console.count('addBadges called');
   removeOverflowHidden();
@@ -976,6 +1220,16 @@ async function addBadges() {
   let skipped = 0;
 
   listings.forEach((listing) => {
+    // ✅ PREVENT DUPLICATES (put it FIRST)
+    if (listing.dataset.badgeInjected === 'true') {
+      skipped += 1;
+      return;
+    }
+
+    // mark immediately BEFORE async work
+    listing.dataset.badgeInjected = 'true';
+
+
     if (listing.querySelector('.my-badges')) {
       skipped += 1;
       return;
@@ -1014,6 +1268,19 @@ async function addBadges() {
         const quartier = extractQuartier(doc);
         const dpe = extractDPE(doc);
         const exactAddress = await getAddressFromCoords(doc);
+        // const transportMeta = await enqueue(() => getTransportFromDescription(doc, "meta-llama/llama-4-scout-17b-16e-instruct"));
+        // const transportJson = await getTransportFromDescription(doc);
+        const transportFromRegex = await quickParseTransport(doc);
+        // const transportNormalizedFromRegex = normalizeTransport(transportFromRegex);
+        let transportHybrid
+        if (!transportFromRegex || transportFromRegex === 'N/A' || transportFromRegex?.sentence === undefined)
+        {
+          transportHybrid = await enqueue(() => getTransportFromDescription(doc));
+          console.log('No transport info from regex, using GROQ on description for:', link.href);
+        }
+        else
+          transportHybrid = await normalizeTransportWithPrompt(transportFromRegex);
+        const transport = normalizeTransport(transportHybrid ?? transportFromRegex);
         const propertyType = getPropertyType(doc);
         // Parse and create feature badges
         const resolvedFeatures = {};
@@ -1030,6 +1297,8 @@ async function addBadges() {
             resolvedFeatures[key] = quartier;
           } else if (config.isSpecial === 'dpe') {
             resolvedFeatures[key] = dpe;
+          } else if (config.isSpecial === 'transport') {
+            resolvedFeatures[key] = transport;
           } else {
             resolvedFeatures[key] = resolveFeature(featureLines, config);
           }
@@ -1038,7 +1307,6 @@ async function addBadges() {
         // Add badges for each feature
         Object.entries(FEATURES_CONFIG).forEach(([key, config]) => {
           const value = resolvedFeatures[key];
-          
           if (config.isSpecial === 'extractor') {
             // Skip etage display (keep in Excel only)
             return;
@@ -1050,11 +1318,8 @@ async function addBadges() {
             }
             return;
           }
-          if (config.isSpecial === 'exactAddress') {
-            badgeContainer.appendChild(createFeatureBadge('📍', exactAddress));
-          }
-          if (config.isSpecial === 'propertyType') {
-            badgeContainer.appendChild(createFeatureBadge('🏠', propertyType));
+          if (config.isSpecial === 'transport') {
+            badgeContainer.appendChild(createFeatureBadge('🚆', transport));
           }
           if (config.isSpecial === 'dpe') {
             // Display DPE with color
@@ -1080,18 +1345,18 @@ async function addBadges() {
           quartier: normalizeValue(quartier),
           dpe: normalizeValue(dpe),
           exactAddress: normalizeValue(exactAddress),
-          propertyType: normalizeValue(propertyType)
+          propertyType: normalizeValue(propertyType),
+          transport: transport || 'N/A',
         });
         updateDownloadButton();
         applyFilters();
         filtersDirty = true;
       }).catch(e => {
-        listingFeaturesCache.set(link.href, { featureLines: [], energyFeatures: {}, coOwnershipFeatures: {}, exactAddress: 'N/A',propertyType: 'N/A', quartier: 'N/A', dpe: 'N/A' });
+        listingFeaturesCache.set(link.href, { featureLines: [], energyFeatures: {}, coOwnershipFeatures: {}, exactAddress: 'N/A',propertyType: 'N/A', transport:'N/A', quartier: 'N/A', dpe: 'N/A' });
         updateDownloadButton();
         console.debug('[SeLoger Enhancer] fetch failed for listing', link.href, e);
       });
     }
-
     listing.insertBefore(badgeContainer, listing.firstChild);
     added += 1;
   });
@@ -1130,6 +1395,7 @@ async function init() {
   createDownloadButton();
   updateDownloadButton();
   badgesData = await fetchFeaturesFromBackend();
+  // badgesData = DEFAULT_FEATURES;
   const panel = createSimpleFilterUI();
   renderDynamicFilters(panel);
   updateExtensionState();

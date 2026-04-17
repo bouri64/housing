@@ -3,7 +3,7 @@
   "name": "SeLoger Enhancer",
   "version": "1.0",
   "description": "Adds extra info to SeLoger listings",
-  "permissions": ["scripting"],
+  "permissions": ["scripting","storage"],
   "host_permissions": ["https://www.seloger.com/*"],
   "content_scripts": [
     {
