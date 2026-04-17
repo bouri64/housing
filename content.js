@@ -14,6 +14,8 @@ const DEFAULT_FEATURES = [
   { emoji: '🛗', label: 'Elevator', enabled: true },
   { emoji: '🔥', label: 'Chauffage collectif', enabled: true }
 ];
+const MAX_RETRIES = 2;
+const RETRY_DELAY = 800; // ms
 const SCAN_INTERVAL_MS = 1000;
 const MAX_SCAN_ATTEMPTS = 15;
 const MAX_CONCURRENT = 3; // Was 3, made 1 for GROQ
@@ -34,9 +36,14 @@ function markFiltersChanged() {
   filtersDirty = true;
   saveFilters();
 }
-chrome.storage.local.set({
-  GROQ_API_KEY: "placeholder"
-});
+const GROQ_KEY = 'placeholder';
+
+// set ONLY if not already set
+if (!localStorage.getItem("GROQ_KEY_STORAGE")) {
+  localStorage.setItem("GROQ_KEY_STORAGE", GROQ_KEY);
+  console.log("[INIT] GROQ API key stored");
+}
+const GROQ_CACHE_KEY = 'groqCache_v1';
 const FEATURES_CONFIG = {
   propertyType: {
     label: 'PropertyType',
@@ -142,29 +149,109 @@ const FEATURES_CONFIG = {
     isSpecial: 'transport'
   }
 };
+
+function getGroqCache() {
+  try {
+    return JSON.parse(localStorage.getItem(GROQ_CACHE_KEY)) || {};
+  } catch {
+    return {};
+  }
+}
+
+function setGroqCache(cache) {
+  localStorage.setItem(GROQ_CACHE_KEY, JSON.stringify(cache));
+}
+// simple hash (good enough for browser)
+function hashString(str) {
+  let hash = 0, i, chr;
+  for (i = 0; i < str.length; i++) {
+    chr = str.charCodeAt(i);
+    hash = ((hash << 5) - hash) + chr;
+    hash |= 0;
+  }
+  return hash.toString();
+}
 async function reqGroq(prompt, model = "openai/gpt-oss-120b") {
-  const { GROQ_API_KEY } = await chrome.storage.local.get("GROQ_API_KEY");
+  const GROQ_API_KEY = localStorage.getItem('GROQ_KEY_STORAGE');
 
-  const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${GROQ_API_KEY}`
-    },
-    body: JSON.stringify({
-      model: model,
-      messages: [
-        {
-          role: "user",
-          content: prompt
-        }
-      ],
-      temperature: 0
-    })
-  });
+  const cache = getGroqCache();
+  const cacheKey = hashString(prompt + model);
 
-  const data = await response.json();
-  return data;
+  // ✅ CACHE HIT
+  // if (cache[cacheKey]) {
+  //   console.log('%c[CACHE HIT]', 'color: green; font-weight: bold;', { model });
+  //   return cache[cacheKey];
+  // }
+
+  const modelsToTry = [
+    model,
+    "meta-llama/llama-4-scout-17b-16e-instruct"
+  ];
+
+  const MAX_RETRIES = 2;
+  const RETRY_DELAY = 800; // ms
+
+  async function callModel(modelToUse) {
+    console.log('%c[API CALL]', 'color: orange;', { model: modelToUse });
+
+    const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${GROQ_API_KEY}`
+      },
+      body: JSON.stringify({
+        model: modelToUse,
+        messages: [{ role: "user", content: prompt }],
+        temperature: 0
+      })
+    });
+
+    return res;
+  }
+
+  for (const modelToUse of modelsToTry) {
+    let attempt = 0;
+
+    while (attempt <= MAX_RETRIES) {
+      const response = await callModel(modelToUse);
+
+      if (response.ok) {
+        const data = await response.json();
+
+        // ✅ CACHE SAVE
+        cache[cacheKey] = data;
+        setGroqCache(cache);
+
+        return data;
+      }
+
+      // 👉 HANDLE RATE LIMIT
+      if (response.status === 429) {
+        console.warn(
+          `%c[429 RATE LIMIT]`,
+          "color: red;",
+          { model: modelToUse, attempt }
+        );
+
+        attempt++;
+
+        if (attempt > MAX_RETRIES) break;
+
+        // ⏳ wait before retry
+        await new Promise(res => setTimeout(res, RETRY_DELAY * attempt));
+        continue;
+      }
+
+      // 👉 OTHER ERRORS → stop trying this model
+      console.warn(`[MODEL FAILED]`, await response.text());
+      break;
+    }
+
+    console.warn(`Switching model → next fallback`);
+  }
+
+  throw new Error("All models failed (rate limit or error)");
 }
 
 async function quickParseTransport(doc) {
@@ -257,21 +344,37 @@ async function parseGroq(matchText, base = "", model = "openai/gpt-oss-120b") {
 
       Context:
       `;
-    // base = "## You need to find the time we need to get to the closest RER, if unknown output an empty JSON. Output format: Json {TimeToTransport:int (in minutes), ClosestTransport:string (Gare name, must be Rer or Transilien), HowReachTransport:string (Bus or Foot)} ... ## Context:\n";
   }
 
   const prompt = base + matchText + "##";
+
+  const cacheKey = "parsed_" + hashString(prompt + model);
+  const cache = getGroqCache();
+
+  // // ✅ CACHE HIT (parsed level)
+  // if (cache[cacheKey]) {
+  //   console.log(`[CACHE HIT - PARSED] model=${model}`);
+  //   return cache[cacheKey];
+  // }
+
   try {
     const completion = await reqGroq(prompt, model);
 
-    return {
+    const result = {
       original_text: matchText,
       response: completion.choices?.[0]?.message?.content || "",
       length: prompt.length
     };
 
+    // ✅ SAVE PARSED RESULT
+    cache[cacheKey] = result;
+    setGroqCache(cache);
+
+    return result;
+
   } catch (e) {
-    console.error("Request failed:", e);
+    // console.error("Request failed:", e);
+    console.warn("Request failed:", e);
     return null;
   }
 }
