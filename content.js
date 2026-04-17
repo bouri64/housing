@@ -161,6 +161,91 @@ function getGroqCache() {
 function setGroqCache(cache) {
   localStorage.setItem(GROQ_CACHE_KEY, JSON.stringify(cache));
 }
+function createGroqKeyBox() {
+  const box = document.createElement('div');
+
+  box.style.position = 'fixed';
+  box.style.top = '10px';
+  box.style.right = '10px';
+  box.style.zIndex = '999999';
+  box.style.width = '260px';
+  box.style.fontSize = '12px';
+
+  // ===== HEADER (click to expand/collapse)
+  const header = document.createElement('div');
+  header.textContent = '🔑 GROQ API Key';
+  header.style.background = '#333';
+  header.style.color = 'white';
+  header.style.padding = '8px';
+  header.style.cursor = 'pointer';
+  header.style.userSelect = 'none';
+  header.style.borderRadius = '4px';
+
+  // ===== CONTENT (hidden by default)
+  const content = document.createElement('div');
+  content.style.display = 'none';
+  content.style.background = 'white';
+  content.style.border = '1px solid #ccc';
+  content.style.borderTop = 'none';
+  content.style.padding = '10px';
+  content.style.boxShadow = '0 2px 8px rgba(0,0,0,0.15)';
+
+  // INPUT
+  const input = document.createElement('input');
+  input.type = 'password';
+  input.style.width = '100%';
+  input.style.marginBottom = '8px';
+  input.value = localStorage.getItem('GROQ_KEY_STORAGE') || '';
+
+  // TOGGLE SHOW/HIDE INPUT TEXT
+  const showBtn = document.createElement('button');
+  showBtn.textContent = '👁 Show/Hide';
+  showBtn.style.marginRight = '6px';
+
+  showBtn.onclick = () => {
+    input.type = input.type === 'password' ? 'text' : 'password';
+  };
+
+  // SAVE BUTTON
+  const saveBtn = document.createElement('button');
+  saveBtn.textContent = 'Save & Reload';
+  saveBtn.style.background = '#4CAF50';
+  saveBtn.style.color = 'white';
+
+  saveBtn.onclick = () => {
+    const value = input.value.trim();
+
+    if (!value) {
+      alert('GROQ key cannot be empty');
+      return;
+    }
+
+    localStorage.setItem('GROQ_KEY_STORAGE', value);
+    console.log('[GROQ] Key updated, reloading...');
+    location.reload();
+  };
+
+  const row = document.createElement('div');
+  row.style.marginTop = '8px';
+  row.appendChild(showBtn);
+  row.appendChild(saveBtn);
+
+  content.appendChild(input);
+  content.appendChild(row);
+
+  // ===== TOGGLE LOGIC (accordion style)
+  header.addEventListener('click', () => {
+    content.style.display =
+      content.style.display === 'none' ? 'block' : 'none';
+  });
+
+  box.appendChild(header);
+  box.appendChild(content);
+
+  document.body.appendChild(box);
+
+  return box;
+}
 // simple hash (good enough for browser)
 function hashString(str) {
   let hash = 0, i, chr;
@@ -172,7 +257,7 @@ function hashString(str) {
   return hash.toString();
 }
 async function reqGroq(prompt, model = "openai/gpt-oss-120b") {
-  const GROQ_API_KEY = localStorage.getItem('GROQ_KEY_STORAGE');
+  const GROQ_API_KEY = (localStorage.getItem('GROQ_KEY_STORAGE') || '').trim();
 
   const cache = getGroqCache();
   const cacheKey = hashString(prompt + model);
@@ -1493,9 +1578,9 @@ async function init() {
     removeOverflowHidden();
   });
   observer.observe(document.body, { attributes: true, attributeFilter: ['class'] });
-
   createToggleButton();
   createDownloadButton();
+  createGroqKeyBox();
   updateDownloadButton();
   badgesData = await fetchFeaturesFromBackend();
   // badgesData = DEFAULT_FEATURES;
