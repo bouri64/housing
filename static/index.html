@@ -4,14 +4,17 @@
     <title>SeLoger Scraper</title>
     <link rel="stylesheet" href="/static/style.css">
 </head>
+
 <body>
 
-<h2>SeLoger Scraper (Playwright)</h2>
+<h2>SeLoger Scraper</h2>
 
-<input id="urlBox" placeholder="Paste SeLoger URL" />
+<input id="urlBox" placeholder="Paste SeLoger URL" style="width:600px">
 <button onclick="run()">Scrape</button>
 
-<div id="table"></div>
+<p id="status"></p>
+
+<table id="table" border="1"></table>
 
 <script src="/static/app.js"></script>
 

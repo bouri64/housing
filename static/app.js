@@ -1,53 +1,106 @@
+document.addEventListener("DOMContentLoaded", () => {
+    const input = document.getElementById("urlBox");
+
+    // ENTER triggers scrape
+    input.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+            run();
+        }
+    });
+});
+
+
 async function run() {
     const url = document.getElementById("urlBox").value;
+    const status = document.getElementById("status");
+    const table = document.getElementById("table");
 
     if (!url) {
-        alert("Paste URL");
+        alert("Please paste a SeLoger URL");
         return;
     }
 
-    const res = await fetch("/scrape", {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({ url })
-    });
+    status.innerText = "Scraping... please wait";
+    table.innerHTML = "";
 
-    const data = await res.json();
+    try {
+        const res = await fetch("http://127.0.0.1:8000/scrape", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({ url })
+        });
 
-    render(data.listings);
+        if (!res.ok) {
+            throw new Error("Backend error: " + res.status);
+        }
+
+        const data = await res.json();
+
+        console.log("FULL RESPONSE:", data);
+
+        render(data.listings);
+
+        status.innerText = `Done: ${data.count} listings`;
+
+    } catch (err) {
+        console.error(err);
+        status.innerText = "Error while scraping (check console)";
+    }
 }
 
 
 function render(rows) {
-    const container = document.getElementById("table");
-    container.innerHTML = "";
+    const table = document.getElementById("table");
+    table.innerHTML = "";
 
-    if (!rows.length) {
-        container.innerHTML = "No data found";
+    if (!rows || rows.length === 0) {
+        table.innerHTML = "<tr><td>No data found</td></tr>";
         return;
     }
 
-    const table = document.createElement("table");
+    const headers = [
+        "url",
+        "description",
+        "property_type",
+        "address"
+    ];
 
-    const header = document.createElement("tr");
-    Object.keys(rows[0]).forEach(k => {
+    // HEADER
+    const headerRow = document.createElement("tr");
+    headers.forEach(h => {
         const th = document.createElement("th");
-        th.innerText = k;
-        header.appendChild(th);
+        th.innerText = h;
+        headerRow.appendChild(th);
     });
-    table.appendChild(header);
+    table.appendChild(headerRow);
 
+    // ROWS
     rows.forEach(r => {
         const tr = document.createElement("tr");
 
-        Object.values(r).forEach(v => {
+        headers.forEach(h => {
             const td = document.createElement("td");
-            td.innerText = v;
+
+            let value = r[h];
+
+            if (!value) value = "";
+
+            // make URL clickable
+            if (h === "url" && value) {
+                const a = document.createElement("a");
+                a.href = value;
+                a.target = "_blank";
+                a.innerText = "open";
+                td.appendChild(a);
+            } else {
+                td.innerText = value;
+            }
+
             tr.appendChild(td);
         });
 
         table.appendChild(tr);
     });
-
-    container.appendChild(table);
 }
