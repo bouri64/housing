@@ -1,5 +1,6 @@
 import time
 import json
+import re
 import requests
 from playwright.sync_api import sync_playwright
 
@@ -18,7 +19,6 @@ def e_geocode(lat, lon):
     global _last_geo_call
 
     try:
-        # enforce 1 req/sec
         elapsed = time.time() - _last_geo_call
         if elapsed < 1:
             time.sleep(1 - elapsed)
@@ -61,11 +61,8 @@ def extract_details(page):
             return "N/A", "N/A"
 
         text = script.inner_text()
-        # debug_log("RAW SCRIPT (first 500 chars)", text[:500])
 
-        import re
         match = re.search(r'JSON\.parse\("(.+)"\)', text, re.S)
-
         if not match:
             debug_log("PROPERTY TYPE DEBUG", "NO JSON MATCH")
             return "N/A", "N/A"
@@ -84,12 +81,13 @@ def extract_details(page):
         coords = location.get("geometry", {}).get("coordinates")
 
         address = "N/A"
+
         if coords and isinstance(coords, (list, tuple)) and len(coords) == 2:
             lon, lat = coords
             address = e_geocode(lat, lon)
         else:
             debug_log("COORDS INVALID", coords)
-            address = "N/A"
+
         return property_type, address
 
     except Exception as e:
@@ -104,7 +102,6 @@ def scrape_seloger(url: str):
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=False)
 
-        # IMPORTANT: separate page for search
         search_page = browser.new_page()
 
         print("🌐 Opening search page...")
@@ -115,7 +112,7 @@ def scrape_seloger(url: str):
             timeout=20000
         )
 
-        # scroll to load ALL listings
+        # scroll to load more
         for _ in range(6):
             search_page.mouse.wheel(0, 3000)
             search_page.wait_for_timeout(1000)
@@ -126,10 +123,8 @@ def scrape_seloger(url: str):
 
         print(f"📦 Found {len(cards)} listings")
 
-        # ---------------- CRITICAL FIX ----------------
-        # extract URLs BEFORE navigation (no DOM refs later)
+        # extract urls BEFORE navigation
         urls = []
-
         for card in cards:
             link = card.query_selector('a[href*="/annonces/"]')
             if not link:
@@ -144,19 +139,30 @@ def scrape_seloger(url: str):
 
         print(f"🔗 Extracted {len(urls)} URLs")
 
-        # ---------------- DETAIL SCRAPING ----------------
+        # ---------------- FAST DETAIL SCRAPING ----------------
         for i, href in enumerate(urls[:10]):
 
-            print(f"\n➡ Scraping listing {i+1}/{len(urls)}")
+            print(f"\n➡ Scraping {i+1}/{len(urls)}")
             print(href)
 
-            detail_page = browser.new_page()   # 🔥 IMPORTANT FIX
+            # 🔥 CREATE CONTEXT WITH BLOCKING ONLY FOR DETAIL PAGE
+            context = browser.new_context()
+
+            def block_assets(route):
+                if route.request.resource_type in ["image", "media", "font"]:
+                    return route.abort()
+                route.continue_()
+
+            context.route("**/*", block_assets)
+
+            detail_page = context.new_page()
 
             try:
                 detail_page.goto(href, timeout=60000)
-                detail_page.wait_for_timeout(3000)
+                detail_page.wait_for_timeout(2000)
 
                 description = detail_page.title()
+
                 debug_log("DESCRIPTION", description)
 
                 property_type, address = extract_details(detail_page)
@@ -172,7 +178,7 @@ def scrape_seloger(url: str):
                 debug_log("LISTING ERROR", str(e))
 
             finally:
-                detail_page.close()
+                context.close()
 
         browser.close()
 
