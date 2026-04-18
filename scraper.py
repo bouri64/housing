@@ -86,23 +86,73 @@ def extract_details(page, cache):
             return "N/A", "N/A"
 
         json_string = match.group(1)
-        json_string = codecs.decode(json_string, "unicode_escape")
-
+        json_string = bytes(json_string, "utf-8").decode("unicode_escape").encode("latin1").decode("utf-8")
         data = json.loads(json_string)
         classified = data.get("app_cldp", {}).get("data", {}).get("classified", {})
-
+        sections = classified.get("sections", {})
+        description = sections.get("description", {}).get("description", "N/A")
+        hardFacts = sections.get("hardFacts", {})
+        energy = sections.get("energy", {})
+        featuresPreview = sections.get("features", {}).get("preview", [])
+        energyFeatures = energy.get("features", {})
+        facts = hardFacts.get("facts", [])
+        location = sections.get("location", {})
         property_type = classified.get("rawData", {}).get("propertyTypeLabel", "N/A")
+        for f in energyFeatures:
+            yearOfConstruction, heatingSystem, energySource = "N/A", "N/A", "N/A"
+            t = f.get("type")
+            if t == "yearOfConstruction":
+                yearOfConstruction = f.get("value")
+            elif t == "heatingSystem":
+                heatingSystem = f.get("value")
+            elif t == "energySource":
+                energySource = f.get("value")
+        rating = energy.get("certificates", [])[0].get("scales", [])[0].get("efficiencyClass", {}).get("rating", "N/A")
+        
+        price = re.sub(r"[^\d]", "", hardFacts.get("price", {}).get("value", "N/A"))
+        pricePerM = re.sub(r"[^\d]", "",hardFacts.get("price", {}).get("additionalInformation", "N/A"))
 
-        location = classified.get("sections", {}).get("location", {})
+        for fact in facts:
+            numberOfRooms, numberOfBedrooms, livingSpace, numberOfFloors = "N/A", "N/A", "N/A", "N/A"
+            t = fact.get("type")
+
+            if t == "numberOfRooms":
+                numberOfRooms = fact.get("splitValue")
+
+            elif t == "numberOfBedrooms":
+                numberOfBedrooms = fact.get("splitValue")
+
+            elif t == "livingSpace":
+                livingSpace = fact.get("splitValue")
+
+            elif t == "numberOfFloors":
+                numberOfFloors = fact.get("value")
+
+        
+        city = classified.get("location", {}).get("address", {}).get("city", "N/A")
         coords = location.get("geometry", {}).get("coordinates")
-
         address = "N/A"
-
         if coords and isinstance(coords, (list, tuple)) and len(coords) == 2:
             lon, lat = coords
             address = e_geocode(lat, lon, cache)
 
-        return property_type, address
+        result = {
+            "property_type": property_type,
+            "address": address,
+            "city": city,
+            "price": price,
+            "price_per_m2": pricePerM,
+            "living_space": livingSpace,
+            "rooms": numberOfRooms,
+            "bedrooms": numberOfBedrooms,
+            "floors": numberOfFloors,
+            "year_of_construction": yearOfConstruction,
+            "heating_system": heatingSystem,
+            "energy_source": energySource,
+            "energy_rating": rating,
+        }
+        print(result)
+        return result
 
     except Exception as e:
         debug_log("PROPERTY ERROR", str(e))
@@ -199,14 +249,9 @@ def scrape_seloger(url: str, cache: dict):
                 description = page.title()
                 debug_log("DESCRIPTION", description)
 
-                property_type, address = extract_details(page, cache)
-
-                result = {
-                    "url": clean_href,
-                    "description": description,
-                    "property_type": property_type,
-                    "address": address
-                }
+                result = extract_details(page, cache)
+                result["url"] = clean_href
+                result["description"] = description
 
                 results.append(result)
 

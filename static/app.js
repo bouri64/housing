@@ -53,18 +53,28 @@ document.addEventListener("DOMContentLoaded", () => {
 // INIT TABLES
 // ===============================
 function initTables() {
-
+    sharedColumns = [
+            { title: "URL", field: "url", formatter: linkFormatter },
+            { title: "Description", field: "description", headerFilter: "input" },
+            { title: "Type", field: "property_type", headerFilter: "input" },
+            { title: "Address", field: "address", headerFilter: "input" },
+            { title: "City", field: "city", headerFilter: "input" },
+            { title: "Heating", field: "heating_system", headerFilter: "input" },
+            { title: "Energy Source", field: "energy_source", headerFilter: "input" },
+            { title: "Energy Rating", field: "energy_rating", headerFilter: "input" },
+            { title: "Price", field: "price", headerFilter: "number", headerFilterFunc: "<=" },
+            { title: "Price/m²", field: "price_per_m2", headerFilter: "number", headerFilterFunc: "<=" },
+            { title: "Living space", field: "living_space", headerFilter: "number", headerFilterFunc: ">=" },
+            { title: "Rooms", field: "rooms", headerFilter: "number", headerFilterFunc: ">=" },
+            { title: "Bedrooms", field: "bedrooms", headerFilter: "number", headerFilterFunc: ">=" },
+            { title: "Year", field: "year_of_construction", headerFilter: "number", headerFilterFunc: ">=" },
+        ];
     mainTable = new Tabulator("#table", {
         layout: "fitColumns",
         height: "500px",
         placeholder: "No data yet",
 
-        columns: [
-            { title: "URL", field: "url", formatter: linkFormatter },
-            { title: "Description", field: "description", headerFilter: "input" },
-            { title: "Type", field: "property_type", headerFilter: "input" },
-            { title: "Address", field: "address", headerFilter: "input" }
-        ],
+        columns: sharedColumns,
 
         rowFormatter: function(row) {
             const data = row.getData();
@@ -79,12 +89,7 @@ function initTables() {
         height: "300px",
         placeholder: "No new data",
 
-        columns: [
-            { title: "URL", field: "url", formatter: linkFormatter },
-            { title: "Description", field: "description", headerFilter: "input" },
-            { title: "Type", field: "property_type", headerFilter: "input" },
-            { title: "Address", field: "address", headerFilter: "input" }
-        ]
+        columns: sharedColumns
     });
 }
 
