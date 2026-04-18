@@ -58,9 +58,9 @@ function initTables() {
 
         columns: [
             { title: "URL", field: "url", formatter: linkFormatter },
-            { title: "Description", field: "description" },
-            { title: "Type", field: "property_type" },
-            { title: "Address", field: "address" }
+            { title: "Description", field: "description", headerFilter: "input" },
+            { title: "Type", field: "property_type", headerFilter: "input" },
+            { title: "Address", field: "address", headerFilter: "input" }
         ]
     });
 }
