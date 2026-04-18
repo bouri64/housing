@@ -26,6 +26,7 @@ def save_cache(cache):
         json.dump(cache, f, ensure_ascii=False, indent=2)
 
 cache = load_cache()
+print(f"🟡 Cache loaded: {len(cache)} entries")
 
 
 # ===============================
@@ -182,12 +183,12 @@ def scrape_seloger(url: str):
         for i, href in enumerate(urls[:MAX_LISTINGS]):
 
             print(f"\n➡ Listing {i+1}/{len(urls)}")
-            print(href)
 
             # ===========================
             # CACHE CHECK (MAIN LOGIC)
             # ===========================
             clean_href = normalize_url(href)
+            print(clean_href)
 
             if clean_href in cache:
                 print("🟢 CACHE HIT (LISTING)")
