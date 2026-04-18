@@ -13,7 +13,16 @@ let diffTable;
 // CACHE HELPERS (NEW)
 // ===============================
 const CACHE_PREFIX = "seloger_cache:";
+const GEO_CACHE_KEY = "seloger_geo";
 
+function getGeoCache() {
+    const raw = localStorage.getItem(GEO_CACHE_KEY);
+    return raw ? JSON.parse(raw) : {};
+}
+
+function setGeoCache(data) {
+    localStorage.setItem(GEO_CACHE_KEY, JSON.stringify(data));
+}
 function getCache(url) {
     const raw = localStorage.getItem(CACHE_PREFIX + url);
     return raw ? JSON.parse(raw) : null;
@@ -102,19 +111,39 @@ async function run() {
 
     status.innerText = "Scraping... please wait";
 
+    // 🔴 GET FULL CACHE FROM LOCALSTORAGE
+    const fullCache = {};
+
+    // listings cache
+    Object.keys(localStorage).forEach(key => {
+        if (key.startsWith(CACHE_PREFIX)) {
+            const urlKey = key.replace(CACHE_PREFIX, "");
+            fullCache[urlKey] = JSON.parse(localStorage.getItem(key));
+        }
+    });
+
+    // ✅ ADD GEO CACHE
+    fullCache["geo"] = getGeoCache();
     try {
         const res = await fetch("http://127.0.0.1:8000/scrape", {
             method: "POST",
             headers: {"Content-Type": "application/json"},
-            body: JSON.stringify({ url })
+            body: JSON.stringify({
+                url: url,
+                cache: fullCache   // ✅ SEND CACHE
+            })
         });
-
-        if (!res.ok) {
-            throw new Error("Backend error: " + res.status);
-        }
 
         const data = await res.json();
 
+        // ✅ RECEIVE UPDATED CACHE
+        Object.entries(data.cache).forEach(([key, value]) => {
+            if (key === "geo") {
+                setGeoCache(value);   // ✅ store geo separately
+            } else {
+                setCache(key, value);
+            }
+        });
         console.log("FULL RESPONSE:", data);
 
         // Save previous state

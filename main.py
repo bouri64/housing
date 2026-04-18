@@ -7,9 +7,10 @@ from scraper import scrape_seloger
 
 app = FastAPI()
 
-# 👇 THIS IS WHAT YOU WERE MISSING
+# Static files (frontend)
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
+# CORS (allow everything for local dev)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -17,21 +18,28 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
 @app.get("/")
 def home():
     return FileResponse("static/index.html")
 
 
+# ===============================
+# REQUEST MODEL (UPDATED)
+# ===============================
 class ScrapeRequest(BaseModel):
     url: str
+    cache: dict = {}   # ✅ receive browser cache
 
 
+# ===============================
+# ENDPOINT
+# ===============================
 @app.post("/scrape")
 def scrape(req: ScrapeRequest):
-    listings = scrape_seloger(req.url)
+    listings, updated_cache = scrape_seloger(req.url, req.cache)
 
     return {
         "count": len(listings),
-        "listings": listings
+        "listings": listings,
+        "cache": updated_cache   # ✅ send back updated cache
     }

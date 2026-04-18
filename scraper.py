@@ -3,30 +3,9 @@ import json
 import re
 import requests
 import codecs
-import os
 from playwright.sync_api import sync_playwright
 
 MAX_LISTINGS = 40
-CACHE_FILE = "seloger_cache.json"
-
-# ===============================
-# CACHE SYSTEM
-# ===============================
-def load_cache():
-    if os.path.exists(CACHE_FILE):
-        try:
-            with open(CACHE_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            return {}
-    return {}
-
-def save_cache(cache):
-    with open(CACHE_FILE, "w", encoding="utf-8") as f:
-        json.dump(cache, f, ensure_ascii=False, indent=2)
-
-cache = load_cache()
-print(f"🟡 Cache loaded: {len(cache)} entries")
 
 
 # ===============================
@@ -39,15 +18,17 @@ def debug_log(label, value):
 
 
 # ===============================
-# RATE LIMITED GEOCODER + CACHE
+# GEOCODER (WITH CACHE FROM FRONTEND)
 # ===============================
 _last_geo_call = 0
-geo_cache = cache.get("geo", {})
 
-def e_geocode(lat, lon):
-    global _last_geo_call, geo_cache
+def e_geocode(lat, lon, cache):
+    global _last_geo_call
 
-    key = f"{lat},{lon}"
+    geo_cache = cache.setdefault("geo", {})
+
+    # 🔥 normalize key (important!)
+    key = f"{round(lat, 5)},{round(lon, 5)}"
 
     if key in geo_cache:
         print(f"🟢 GEO CACHE HIT: {key}")
@@ -79,9 +60,8 @@ def e_geocode(lat, lon):
 
         address = r.json().get("display_name", "N/A")
 
+        # ✅ store in cache
         geo_cache[key] = address
-        cache["geo"] = geo_cache
-        save_cache(cache)
 
         return address
 
@@ -89,11 +69,10 @@ def e_geocode(lat, lon):
         debug_log("GEOCODE EXCEPTION", str(e))
         return "N/A"
 
-
 # ===============================
 # PROPERTY EXTRACTION
 # ===============================
-def extract_details(page):
+def extract_details(page, cache):
     try:
         script = page.query_selector("#__UFRN_LIFECYCLE_SERVERREQUEST__")
 
@@ -121,7 +100,7 @@ def extract_details(page):
 
         if coords and isinstance(coords, (list, tuple)) and len(coords) == 2:
             lon, lat = coords
-            address = e_geocode(lat, lon)
+            address = e_geocode(lat, lon, cache)
 
         return property_type, address
 
@@ -131,10 +110,16 @@ def extract_details(page):
 
 
 # ===============================
+# UTILS
+# ===============================
+def normalize_url(url: str) -> str:
+    return url.split("?")[0].split("#")[0]
+
+
+# ===============================
 # MAIN SCRAPER
 # ===============================
-def scrape_seloger(url: str):
-    global cache
+def scrape_seloger(url: str, cache: dict):
 
     results = []
 
@@ -169,6 +154,7 @@ def scrape_seloger(url: str):
                 continue
 
             href = link.get_attribute("href")
+
             if href and not href.startswith("http"):
                 href = "https://www.seloger.com" + href
 
@@ -184,15 +170,12 @@ def scrape_seloger(url: str):
 
             print(f"\n➡ Listing {i+1}/{len(urls)}")
 
-            # ===========================
-            # CACHE CHECK (MAIN LOGIC)
-            # ===========================
             clean_href = normalize_url(href)
             print(clean_href)
 
+            # ✅ CACHE HIT
             if clean_href in cache:
                 print("🟢 CACHE HIT (LISTING)")
-                print(cache[clean_href])
                 results.append(cache[clean_href])
                 continue
 
@@ -216,20 +199,19 @@ def scrape_seloger(url: str):
                 description = page.title()
                 debug_log("DESCRIPTION", description)
 
-                property_type, address = extract_details(page)
+                property_type, address = extract_details(page, cache)
 
                 result = {
-                    "url": href,
+                    "url": clean_href,
                     "description": description,
                     "property_type": property_type,
                     "address": address
                 }
 
-                result["url"] = clean_href
                 results.append(result)
-                # SAVE TO CACHE
+
+                # ✅ UPDATE CACHE (IN MEMORY ONLY)
                 cache[clean_href] = result
-                save_cache(cache)
 
             except Exception as e:
                 debug_log("LISTING ERROR", str(e))
@@ -239,7 +221,5 @@ def scrape_seloger(url: str):
 
         browser.close()
 
-    return results
-
-def normalize_url(url: str) -> str:
-    return url.split("?")[0].split("#")[0]
+    # ✅ RETURN UPDATED CACHE
+    return results, cache
