@@ -10,6 +10,20 @@ let mainTable;
 let diffTable;
 
 // ===============================
+// CACHE HELPERS (NEW)
+// ===============================
+const CACHE_PREFIX = "seloger_cache:";
+
+function getCache(url) {
+    const raw = localStorage.getItem(CACHE_PREFIX + url);
+    return raw ? JSON.parse(raw) : null;
+}
+
+function setCache(url, data) {
+    localStorage.setItem(CACHE_PREFIX + url, JSON.stringify(data));
+}
+
+// ===============================
 // INIT
 // ===============================
 document.addEventListener("DOMContentLoaded", () => {
@@ -106,8 +120,29 @@ async function run() {
         // Save previous state
         appState.previousDF = [...appState.currentDF];
 
+        // ===============================
+        // CACHE PROCESSING (NEW LOGIC)
+        // ===============================
+        const processedListings = data.listings.map(listing => {
+            const cached = getCache(listing.url);
+
+            if (cached) {
+                console.log("🟢 CACHE HIT");
+                console.log("URL:", listing.url);
+                console.log("CACHED CONTENT:", cached);
+                return cached;
+            } else {
+                console.log("🔴 CACHE MISS");
+                console.log("URL:", listing.url);
+                console.log("NEW CONTENT:", listing);
+
+                setCache(listing.url, listing);
+                return listing;
+            }
+        });
+
         // Merge new data (instead of overwrite)
-        appState.currentDF = mergeData(appState.currentDF, data.listings);
+        appState.currentDF = mergeData(appState.currentDF, processedListings);
 
         updateTables();
 
@@ -147,10 +182,8 @@ function isNewRow(row) {
 // UPDATE TABLES
 // ===============================
 function updateTables() {
-    // Main dataframe
     mainTable.replaceData(appState.currentDF);
 
-    // Diff dataframe
     const newRows = getNewRows(appState.previousDF, appState.currentDF);
     diffTable.replaceData(newRows);
 }
