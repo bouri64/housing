@@ -2,7 +2,27 @@
 <html>
 <head>
     <title>SeLoger Scraper</title>
+
+    <!-- Your CSS -->
     <link rel="stylesheet" href="/static/style.css">
+
+    <!-- Tabulator CSS -->
+    <link href="https://unpkg.com/tabulator-tables@5.5.0/dist/css/tabulator.min.css" rel="stylesheet">
+
+    <style>
+        body {
+            font-family: Arial;
+            padding: 20px;
+        }
+
+        #table, #diffTable {
+            margin-top: 20px;
+        }
+
+        button {
+            margin-left: 10px;
+        }
+    </style>
 </head>
 
 <body>
@@ -11,11 +31,20 @@
 
 <input id="urlBox" placeholder="Paste SeLoger URL" style="width:600px">
 <button onclick="run()">Scrape</button>
+<button id="downloadBtn">⬇ Download CSV</button>
 
 <p id="status"></p>
 
-<table id="table" border="1"></table>
+<h3>Main DataFrame</h3>
+<div id="table"></div>
 
+<h3>New Listings (Diff)</h3>
+<div id="diffTable"></div>
+
+<!-- Tabulator JS -->
+<script src="https://unpkg.com/tabulator-tables@5.5.0/dist/js/tabulator.min.js"></script>
+
+<!-- Your JS -->
 <script src="/static/app.js"></script>
 
 </body>

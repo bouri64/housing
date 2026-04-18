@@ -1,19 +1,85 @@
+// ===============================
+// GLOBAL STATE (like Streamlit)
+// ===============================
+let appState = {
+    currentDF: [],
+    previousDF: []
+};
+
+let mainTable;
+let diffTable;
+
+// ===============================
+// INIT
+// ===============================
 document.addEventListener("DOMContentLoaded", () => {
     const input = document.getElementById("urlBox");
 
-    // ENTER triggers scrape
     input.addEventListener("keydown", (e) => {
-        if (e.key === "Enter") {
-            run();
-        }
+        if (e.key === "Enter") run();
+    });
+
+    initTables();
+
+    document.getElementById("downloadBtn").addEventListener("click", () => {
+        mainTable.download("csv", "seloger_listings.csv");
     });
 });
 
+// ===============================
+// INIT TABLES
+// ===============================
+function initTables() {
 
+    mainTable = new Tabulator("#table", {
+        layout: "fitColumns",
+        height: "500px",
+        placeholder: "No data yet",
+
+        columns: [
+            { title: "URL", field: "url", formatter: linkFormatter },
+            { title: "Description", field: "description", headerFilter: "input" },
+            { title: "Type", field: "property_type", headerFilter: "input" },
+            { title: "Address", field: "address", headerFilter: "input" }
+        ],
+
+        rowFormatter: function(row) {
+            const data = row.getData();
+            if (isNewRow(data)) {
+                row.getElement().style.backgroundColor = "#d4edda";
+            }
+        }
+    });
+
+    diffTable = new Tabulator("#diffTable", {
+        layout: "fitColumns",
+        height: "300px",
+        placeholder: "No new data",
+
+        columns: [
+            { title: "URL", field: "url", formatter: linkFormatter },
+            { title: "Description", field: "description" },
+            { title: "Type", field: "property_type" },
+            { title: "Address", field: "address" }
+        ]
+    });
+}
+
+// ===============================
+// FORMATTERS
+// ===============================
+function linkFormatter(cell) {
+    const url = cell.getValue();
+    if (!url) return "";
+    return `<a href="${url}" target="_blank">open</a>`;
+}
+
+// ===============================
+// MAIN FUNCTION
+// ===============================
 async function run() {
     const url = document.getElementById("urlBox").value;
     const status = document.getElementById("status");
-    const table = document.getElementById("table");
 
     if (!url) {
         alert("Please paste a SeLoger URL");
@@ -21,14 +87,11 @@ async function run() {
     }
 
     status.innerText = "Scraping... please wait";
-    table.innerHTML = "";
 
     try {
         const res = await fetch("http://127.0.0.1:8000/scrape", {
             method: "POST",
-            headers: {
-                "Content-Type": "application/json"
-            },
+            headers: {"Content-Type": "application/json"},
             body: JSON.stringify({ url })
         });
 
@@ -40,67 +103,54 @@ async function run() {
 
         console.log("FULL RESPONSE:", data);
 
-        render(data.listings);
+        // Save previous state
+        appState.previousDF = [...appState.currentDF];
+
+        // Merge new data (instead of overwrite)
+        appState.currentDF = mergeData(appState.currentDF, data.listings);
+
+        updateTables();
 
         status.innerText = `Done: ${data.count} listings`;
 
     } catch (err) {
         console.error(err);
-        status.innerText = "Error while scraping (check console)";
+        status.innerText = "Error while scraping";
     }
 }
 
+// ===============================
+// MERGE DATA (avoid duplicates)
+// ===============================
+function mergeData(oldRows, newRows) {
+    const map = new Map();
 
-function render(rows) {
-    const table = document.getElementById("table");
-    table.innerHTML = "";
+    oldRows.forEach(r => map.set(r.url, r));
+    newRows.forEach(r => map.set(r.url, r));
 
-    if (!rows || rows.length === 0) {
-        table.innerHTML = "<tr><td>No data found</td></tr>";
-        return;
-    }
+    return Array.from(map.values());
+}
 
-    const headers = [
-        "url",
-        "description",
-        "property_type",
-        "address"
-    ];
+// ===============================
+// DIFF LOGIC
+// ===============================
+function getNewRows(oldRows, newRows) {
+    const oldUrls = new Set(oldRows.map(r => r.url));
+    return newRows.filter(r => !oldUrls.has(r.url));
+}
 
-    // HEADER
-    const headerRow = document.createElement("tr");
-    headers.forEach(h => {
-        const th = document.createElement("th");
-        th.innerText = h;
-        headerRow.appendChild(th);
-    });
-    table.appendChild(headerRow);
+function isNewRow(row) {
+    return !appState.previousDF.find(r => r.url === row.url);
+}
 
-    // ROWS
-    rows.forEach(r => {
-        const tr = document.createElement("tr");
+// ===============================
+// UPDATE TABLES
+// ===============================
+function updateTables() {
+    // Main dataframe
+    mainTable.replaceData(appState.currentDF);
 
-        headers.forEach(h => {
-            const td = document.createElement("td");
-
-            let value = r[h];
-
-            if (!value) value = "";
-
-            // make URL clickable
-            if (h === "url" && value) {
-                const a = document.createElement("a");
-                a.href = value;
-                a.target = "_blank";
-                a.innerText = "open";
-                td.appendChild(a);
-            } else {
-                td.innerText = value;
-            }
-
-            tr.appendChild(td);
-        });
-
-        table.appendChild(tr);
-    });
+    // Diff dataframe
+    const newRows = getNewRows(appState.previousDF, appState.currentDF);
+    diffTable.replaceData(newRows);
 }
