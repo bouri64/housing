@@ -98,8 +98,8 @@ def extract_details(page, cache):
         facts = hardFacts.get("facts", [])
         location = sections.get("location", {})
         property_type = classified.get("rawData", {}).get("propertyTypeLabel", "N/A")
+        yearOfConstruction, heatingSystem, energySource = "N/A", "N/A", "N/A"
         for f in energyFeatures:
-            yearOfConstruction, heatingSystem, energySource = "N/A", "N/A", "N/A"
             t = f.get("type")
             if t == "yearOfConstruction":
                 yearOfConstruction = f.get("value")
@@ -112,8 +112,8 @@ def extract_details(page, cache):
         price = re.sub(r"[^\d]", "", hardFacts.get("price", {}).get("value", "N/A"))
         pricePerM = re.sub(r"[^\d]", "",hardFacts.get("price", {}).get("additionalInformation", "N/A"))
 
+        numberOfRooms, numberOfBedrooms, livingSpace, numberOfFloors = "N/A", "N/A", "N/A", "N/A"
         for fact in facts:
-            numberOfRooms, numberOfBedrooms, livingSpace, numberOfFloors = "N/A", "N/A", "N/A", "N/A"
             t = fact.get("type")
 
             if t == "numberOfRooms":
@@ -129,7 +129,8 @@ def extract_details(page, cache):
                 numberOfFloors = fact.get("value")
 
         
-        city = classified.get("location", {}).get("address", {}).get("city", "N/A")
+        city = sections.get("location", {}).get("address", {}).get("city", "N/A")
+        quartier = sections.get("location", {}).get("address", {}).get("district", "N/A")
         coords = location.get("geometry", {}).get("coordinates")
         address = "N/A"
         if coords and isinstance(coords, (list, tuple)) and len(coords) == 2:
@@ -140,6 +141,7 @@ def extract_details(page, cache):
             "property_type": property_type,
             "address": address,
             "city": city,
+            "quartier": quartier,
             "price": price,
             "price_per_m2": pricePerM,
             "living_space": livingSpace,

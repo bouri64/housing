@@ -59,6 +59,7 @@ function initTables() {
             { title: "Type", field: "property_type", headerFilter: "input" },
             { title: "Address", field: "address", headerFilter: "input" },
             { title: "City", field: "city", headerFilter: "input" },
+            { title: "Quartier", field: "quartier", headerFilter: "input" },
             { title: "Heating", field: "heating_system", headerFilter: "input" },
             { title: "Energy Source", field: "energy_source", headerFilter: "input" },
             { title: "Energy Rating", field: "energy_rating", headerFilter: "input" },
